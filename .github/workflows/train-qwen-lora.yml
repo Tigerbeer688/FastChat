@@ -20,26 +20,43 @@ jobs:
           python-version: '3.10'
           cache: 'pip'
 
-      # 优先安装 PyTorch（适配 CUDA 11.8）
-      - name: 优先安装 PyTorch（适配 CUDA 11.8）
+      # 优先安装 PyTorch（适配 CUDA 11.8.0）
+      - name: 优先安装 PyTorch（适配 CUDA 11.8.0）
         run: |
           pip install --upgrade pip
+          # 安装与 CUDA 11.8.0 兼容的 PyTorch 版本
           pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu118
 
-      # 直接安装 FastChat 及其他依赖（跳过 flash-attn）
+      # 安装 FastChat 及其他训练依赖（禁用 flash-attn）
       - name: 安装 FastChat 及其他训练依赖
         run: |
           pip install -e .
           pip install transformers==4.37.2 accelerate==0.27.1 peft==0.8.2 datasets==2.14.6
           pip install huggingface-hub==0.20.3 sentencepiece==0.1.99
 
-      - name: 安装 CUDA 11.8
+      # 修复 CUDA 安装：使用完整版本号 11.8.0
+      - name: 安装 CUDA 11.8.0
         uses: Jimver/cuda-toolkit@v0.2.10
         with:
-          cuda: '11.8'
+          cuda: '11.8.0'
+          sub-packages: ["toolkit"]
+          method: local
+          linux-local-args: ["--toolkit"]
+          use-github-cache: true
 
-      # 后续步骤（登录 HF、下载模型、训练）不变，仅训练命令添加 --no-flash-attn
-      - name: 启动 Qwen 模型 LoRA 微调
+      - name: 登录 Hugging Face Hub
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          huggingface-cli login --token $HF_TOKEN
+
+      - name: 下载 Qwen-7B 模型
+        run: |
+          huggingface-cli download Qwen/Qwen-7B \
+            --local-dir ./models/Qwen-7B \
+            --local-dir-use-symlinks False
+
+      - name: 启动 Qwen 模型 LoRA 微调（禁用 flash-attn）
         run: |
           python -m fastchat.train.train_lora \
             --model_name_or_path ./models/Qwen-7B \
@@ -58,4 +75,13 @@ jobs:
             --target_modules="q_proj,v_proj,k_proj,o_proj,gate_proj,up_proj,down_proj" \
             --peft_model_id ${{ secrets.HF_USERNAME }}/qwen-7b-highschool-qa \
             --push_to_hub=True \
-            --no-flash-attn  # 关键：禁用 flash-attn
+            --no-flash-attn  # 禁用 flash-attn，避免依赖问题
+
+      - name: 推送合并后的模型到 Hugging Face
+        if: success()
+        run: |
+          python -m fastchat.model.push_to_hub \
+            --model-path ./models/Qwen-7B \
+            --lora-path ./output/qwen-7b-highschool-lora \
+            --repo-id ${{ secrets.HF_USERNAME }}/qwen-7b-highschool-qa \
+            --commit-message "FastChat LoRA 微调 Qwen-7B 高中学习助手"
