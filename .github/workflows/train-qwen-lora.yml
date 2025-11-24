@@ -15,21 +15,25 @@ jobs:
       - name: 拉取代码
         uses: actions/checkout@v4
 
-      # 步骤 2：配置 Conda 环境（用 Conda 安装 CUDA，避免插件语法问题）
+      # 步骤 2：配置 Conda + CUDA 11.8（修复参数冲突和 Python 版本）
       - name: 配置 Conda + CUDA 11.8
         uses: conda-incubator/setup-miniconda@v3
         with:
-          auto-update-conda: true
-          python-version: 3.10
-          conda-version: latest
-          environment-file: environment.yml  # 后续创建的环境配置文件
-          activate-environment: fastchat-env
+          auto-update-conda: true  # 保留：自动更新 Conda 到最新版
+          python-version: 3.10  # 修正：之前误写为 3.1，需与训练依赖一致
+          environment-file: environment.yml  # 配套的环境配置文件
+          activate-environment: fastchat-env  # 环境名称
+          auto-activate-base: true
+          remove-profiles: true
+          conda-solver: libmamba
+          clean-patched-environment-file: true
+          run-post: true
 
-      # 步骤 3：激活 Conda 并安装依赖（所有操作在 Conda 环境中执行）
+      # 步骤 3：激活 Conda 并安装依赖
       - name: 安装 PyTorch、FastChat 及训练依赖
-        shell: bash -l {0}  # 必须带 -l {0}，确保激活 Conda 环境
+        shell: bash -l {0}  # 确保激活 Conda 环境
         run: |
-          # 安装适配 CUDA 11.8 的 PyTorch
+          # 安装适配 CUDA 11.8 的 PyTorch（Conda 自动处理 CUDA 依赖）
           conda install pytorch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 pytorch-cuda=11.8 -c pytorch -c nvidia -y
           
           # 安装 FastChat
