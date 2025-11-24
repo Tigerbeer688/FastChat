@@ -43,7 +43,10 @@ jobs:
           pip install sentencepiece==0.1.99
           pip install numpy==1.26.4 pyarrow==14.0.1 --no-cache-dir
           pip install deepspeed==0.13.5 --no-cache-dir 
-          pip install flash-attn==2.3.6 --no-cache-dir
+
+          git clone https://github.com/Dao-AILab/flash-attention
+          pip install ./flash-attention/ --no-build-isolation
+
           # 验证 CUDA 和依赖
           python -c "import torch; print('CUDA 可用：', torch.cuda.is_available()); print('CUDA 版本：', torch.version.cuda)"
           python -c "import huggingface_hub; print('huggingface-hub 版本：', huggingface_hub.__version__)"
