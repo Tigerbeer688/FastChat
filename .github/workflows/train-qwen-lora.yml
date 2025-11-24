@@ -15,36 +15,35 @@ jobs:
       - name: 拉取代码
         uses: actions/checkout@v4
 
-      # 步骤 2：配置 Python 3.10（纯 Python 环境，无 Conda）
+      # 步骤 2：配置 Python 3.10（纯 Python 环境）
       - name: 配置 Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          cache: 'pip'  # 缓存依赖，加速安装
+          cache: 'pip'
 
-      # 步骤 3：安装系统依赖（CUDA 相关库）
-      - name: 安装系统基础依赖
+      # 步骤 3：安装系统基础依赖
+      - name: 安装系统依赖
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc g++ make libcupti-dev  # 编译 CUDA 依赖的系统库
+          sudo apt-get install -y gcc g++ make libcupti-dev
 
       # 步骤 4：安装 PyTorch（带 CUDA 11.8）
       - name: 安装 PyTorch + CUDA 11.8
         run: |
           pip install --upgrade pip
-          # 直接安装预编译的 PyTorch + CUDA 11.8 版本（无需手动装 CUDA）
           pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu118
 
-      # 步骤 5：安装 FastChat 及训练依赖
+      # 步骤 5：安装依赖（升级 huggingface-hub 确保兼容性）
       - name: 安装 FastChat 及训练工具
         run: |
-          # 安装 FastChat（禁用 flash-attn 相关依赖）
           pip install -e .
-          # 安装其他训练依赖（指定兼容版本）
-          pip install transformers==4.37.2 accelerate==0.27.1 peft==0.8.2 datasets==2.14.6
-          pip install huggingface-hub==0.20.3 sentencepiece==0.1.99
-          # 验证 CUDA 是否可用
+          # 升级 huggingface-hub 到支持断点续传的版本
+          pip install huggingface-hub==0.23.4 transformers==4.37.2 accelerate==0.27.1 peft==0.8.2 datasets==2.14.6
+          pip install sentencepiece==0.1.99
+          # 验证 CUDA 和依赖
           python -c "import torch; print('CUDA 可用：', torch.cuda.is_available()); print('CUDA 版本：', torch.version.cuda)"
+          python -c "import huggingface_hub; print('huggingface-hub 版本：', huggingface_hub.__version__)"
 
       # 步骤 6：登录 Hugging Face Hub
       - name: 登录 Hugging Face Hub
@@ -53,38 +52,38 @@ jobs:
         run: |
           huggingface-cli login --token $HF_TOKEN
 
-      # 步骤 7：下载 Qwen-7B 基础模型（避免软链接问题）
+      # 步骤 7：下载 Qwen-7B 模型（移除 --max-workers，添加断点续传）
       - name: 下载 Qwen-7B 模型
         run: |
           huggingface-cli download Qwen/Qwen-7B \
             --local-dir ./models/Qwen-7B \
             --local-dir-use-symlinks False \
-            --max-workers 4  # 多线程下载，加速
+            --resume-download  # 断点续传，避免下载中断（升级后支持）
 
-      # 步骤 8：执行 LoRA 微调（核心步骤，显存优化）
+      # 步骤 8：执行 LoRA 微调（核心步骤）
       - name: 启动 Qwen-7B LoRA 微调
         run: |
           python -m fastchat.train.train_lora \
             --model_name_or_path ./models/Qwen-7B \
             --data_path ./data/highschool_qa.json \
             --output_dir ./output/qwen-7b-highschool-lora \
-            --per_device_train_batch_size=2 \  # 降低批次大小，避免显存溢出
-            --gradient_accumulation_steps=8 \  # 梯度累积，等价于 batch size=16
+            --per_device_train_batch_size=2 \
+            --gradient_accumulation_steps=8 \
             --learning_rate=2e-4 \
             --num_train_epochs=3 \
             --logging_steps=10 \
             --save_steps=100 \
-            --fp16=True \  # 混合精度训练，省显存
+            --fp16=True \
             --lora_r=8 \
             --lora_alpha=16 \
             --lora_dropout=0.05 \
             --target_modules="q_proj,v_proj,k_proj,o_proj,gate_proj,up_proj,down_proj" \
             --peft_model_id ${{ secrets.HF_USERNAME }}/qwen-7b-highschool-qa \
             --push_to_hub=True \
-            --no-flash-attn \  # 禁用 flash-attn，无依赖冲突
-            --load-8bit  # 8 位量化，进一步降低显存占用（仅需 8GB 显存）
+            --no-flash-attn \
+            --load-8bit
 
-      # 步骤 9：推送合并后的完整模型（可选，方便直接使用）
+      # 步骤 9：推送模型到 Hugging Face
       - name: 推送模型到 Hugging Face Hub
         if: success()
         run: |
@@ -92,4 +91,4 @@ jobs:
             --model-path ./models/Qwen-7B \
             --lora-path ./output/qwen-7b-highschool-lora \
             --repo-id ${{ secrets.HF_USERNAME }}/qwen-7b-highschool-qa \
-            --commit-message "FastChat 纯 Python 环境微调 Qwen-7B 高中助手"
+            --commit-message "FastChat 微调 Qwen-7B 高中助手（最终版）"
