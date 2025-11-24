@@ -1,8 +1,8 @@
 name: 微调 Qwen-7B 高中学习助手（FastChat + LoRA）
 on:
   push:
-    branches: [ main ]  # 推送代码到 main 分支自动触发
-  workflow_dispatch:  # 允许手动触发（Actions 页面点击运行）
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   train-qwen-lora:
@@ -11,71 +11,75 @@ jobs:
       contents: write
       packages: write
     steps:
-      # 步骤 1：拉取仓库代码（含数据集）
       - name: 拉取代码
         uses: actions/checkout@v4
 
-      # 步骤 2：配置 Python 环境（3.10 适配 Qwen 和 FastChat）
       - name: 配置 Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           cache: 'pip'
 
-      # 步骤 3：安装依赖（FastChat + Qwen 适配依赖）
-      - name: 安装核心依赖
+      # ========== 修复核心步骤：调整依赖安装顺序 ==========
+      - name: 优先安装 PyTorch（适配 CUDA 11.8）
         run: |
           pip install --upgrade pip
-          # 安装 FastChat（含训练所需依赖）
-          pip install -e .[train]
-          # 安装 Qwen 所需依赖（tokenizer、模型加载）
+          # 安装对应 CUDA 11.8 的 PyTorch（避免版本不兼容）
+          pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu118
+
+      - name: 安装 flash-attn（用预编译包，跳过本地编译）
+        run: |
+          # 使用 huggingface 源的预编译 wheel，避免编译依赖问题
+          pip install flash-attn==2.8.3 --no-build-isolation --index-url https://download.pytorch.org/whl/cu118
+
+      - name: 安装 FastChat 及其他训练依赖
+        run: |
+          # 安装 FastChat（无需再单独装 flash-attn，已提前安装）
+          pip install -e .
+          # 安装剩余依赖
           pip install transformers==4.37.2 accelerate==0.27.1 peft==0.8.2 datasets==2.14.6
           pip install huggingface-hub==0.20.3 sentencepiece==0.1.99
+      # ========== 修复结束 ==========
 
-      # 步骤 4：配置 CUDA 环境（Qwen 微调需 CUDA 11.8+）
       - name: 安装 CUDA 11.8
         uses: Jimver/cuda-toolkit@v0.2.10
         with:
           cuda: '11.8'
 
-      # 步骤 5：登录 Hugging Face（下载 Qwen 模型 + 后续推送微调模型）
       - name: 登录 Hugging Face Hub
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           huggingface-cli login --token $HF_TOKEN
 
-      # 步骤 6：下载 Qwen-7B 基础模型（自动缓存到工作目录）
       - name: 下载 Qwen-7B 模型
         run: |
           huggingface-cli download Qwen/Qwen-7B \
             --local-dir ./models/Qwen-7B \
-            --local-dir-use-symlinks False  # 避免软链接问题（GitHub Actions 环境兼容）
+            --local-dir-use-symlinks False
 
-      # 步骤 7：执行 LoRA 微调（核心步骤！）
       - name: 启动 Qwen 模型 LoRA 微调
         run: |
           python -m fastchat.train.train_lora \
-            --model_name_or_path ./models/Qwen-7B \  # 基础模型路径
-            --data_path ./data/highschool_qa.json \  # 数据集路径（需与上传一致）
-            --output_dir ./output/qwen-7b-highschool-lora \  # 微调模型输出路径
-            --per_device_train_batch_size=4 \  # 单设备批次大小（T4 显存适配）
-            --gradient_accumulation_steps=4 \  # 梯度累积（显存不足时增大）
-            --learning_rate=2e-4 \  # LoRA 学习率（Qwen 推荐 1e-4~3e-4）
-            --num_train_epochs=3 \  # 训练轮数（样本少可增至 5）
-            --logging_steps=10 \  # 日志输出间隔
-            --save_steps=100 \  # 模型保存间隔
-            --fp16=True \  # 混合精度训练（加速且省显存）
-            --lora_r=8 \  # LoRA 秩（常用 8~64，越小越省显存）
-            --lora_alpha=16 \  # LoRA 缩放因子（通常是 r 的 2 倍）
-            --lora_dropout=0.05 \  # Dropout 比例（防止过拟合）
-            --target_modules="q_proj,v_proj,k_proj,o_proj,gate_proj,up_proj,down_proj" \  # Qwen 目标微调层（关键！）
-            --peft_model_id ${{ secrets.HF_USERNAME }}/qwen-7b-highschool-qa \  # 后续推送的 Hugging Face 仓库名
-            --push_to_hub=True  # 训练完成后自动推送至 Hugging Face
+            --model_name_or_path ./models/Qwen-7B \
+            --data_path ./data/highschool_qa.json \
+            --output_dir ./output/qwen-7b-highschool-lora \
+            --per_device_train_batch_size=4 \
+            --gradient_accumulation_steps=4 \
+            --learning_rate=2e-4 \
+            --num_train_epochs=3 \
+            --logging_steps=10 \
+            --save_steps=100 \
+            --fp16=True \
+            --lora_r=8 \
+            --lora_alpha=16 \
+            --lora_dropout=0.05 \
+            --target_modules="q_proj,v_proj,k_proj,o_proj,gate_proj,up_proj,down_proj" \
+            --peft_model_id ${{ secrets.HF_USERNAME }}/qwen-7b-highschool-qa \
+            --push_to_hub=True
 
-      # 步骤 8：推送完整模型（基础模型 + LoRA 适配器，可选）
       - name: 推送合并后的模型到 Hugging Face
-        if: success()  # 仅训练成功后执行
+        if: success()
         run: |
           python -m fastchat.model.push_to_hub \
             --model-path ./models/Qwen-7B \
