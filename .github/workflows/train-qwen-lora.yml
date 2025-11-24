@@ -1,4 +1,4 @@
-name: 微调 Qwen-7B 高中学习助手（FastChat + LoRA）
+name: 微调 Qwen3-0.6B 高中学习助手（FastChat + LoRA）
 on:
   push:
     branches: [ main ]
@@ -52,22 +52,22 @@ jobs:
         run: |
           huggingface-cli login --token $HF_TOKEN
 
-      # 步骤 7：下载 Qwen-7B 模型（移除 --max-workers，添加断点续传）
-      - name: 下载 Qwen-7B 模型
+      # 步骤 7：下载 Qwen3-0.6B 模型（移除 --max-workers，添加断点续传）
+      - name: 下载 Qwen3-0.6B 模型
         run: |
-          huggingface-cli download Qwen/Qwen-7B \
-            --local-dir ./models/Qwen-7B \
+          huggingface-cli download Qwen/Qwen3-0.6B \
+            --local-dir ./models/Qwen3-0.6B \
             --local-dir-use-symlinks False \
             --resume-download  # 断点续传，避免下载中断（升级后支持） 
             --disable-parallelism
 
       # 步骤 8：执行 LoRA 微调（核心步骤）
-      - name: 启动 Qwen-7B LoRA 微调
+      - name: 启动 Qwen3-0.6B LoRA 微调
         run: |
           python -m fastchat.train.train_lora \
-            --model_name_or_path ./models/Qwen-7B \
+            --model_name_or_path ./models/Qwen3-0.6B \
             --data_path ./data/highschool_qa.json \
-            --output_dir ./output/qwen-7b-highschool-lora \
+            --output_dir ./output/Qwen3-0.6B-highschool-lora \
             --per_device_train_batch_size=2 \
             --gradient_accumulation_steps=8 \
             --learning_rate=2e-4 \
@@ -79,7 +79,7 @@ jobs:
             --lora_alpha=16 \
             --lora_dropout=0.05 \
             --target_modules="q_proj,v_proj,k_proj,o_proj,gate_proj,up_proj,down_proj" \
-            --peft_model_id ${{ secrets.HF_USERNAME }}/qwen-7b-highschool-qa \
+            --peft_model_id ${{ secrets.HF_USERNAME }}/Qwen3-0.6B-highschool-qa \
             --push_to_hub=True \
             --no-flash-attn \
             --load-8bit
@@ -89,7 +89,7 @@ jobs:
         if: success()
         run: |
           python -m fastchat.model.push_to_hub \
-            --model-path ./models/Qwen-7B \
-            --lora-path ./output/qwen-7b-highschool-lora \
-            --repo-id ${{ secrets.HF_USERNAME }}/qwen-7b-highschool-qa \
-            --commit-message "FastChat 微调 Qwen-7B 高中助手（最终版）"
+            --model-path ./models/Qwen3-0.6B \
+            --lora-path ./output/Qwen3-0.6B-highschool-lora \
+            --repo-id ${{ secrets.HF_USERNAME }}/Qwen3-0.6B-highschool-qa \
+            --commit-message "FastChat 微调 Qwen3-0.6B 高中助手（最终版）"
