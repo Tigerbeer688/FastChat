@@ -58,7 +58,7 @@ jobs:
           huggingface-cli download Qwen/Qwen3-0.6B \
             --local-dir ./models/Qwen3-0.6B \
             --local-dir-use-symlinks False \
-            --resume-download  \ # 断点续传，避免下载中断（升级后支持） 
+            --resume-download  \  
             --disable-parallelism
 
       # 步骤 8：执行 LoRA 微调（核心步骤）
