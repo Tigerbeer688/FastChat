@@ -41,6 +41,7 @@ jobs:
           # 升级 huggingface-hub 到支持断点续传的版本
           pip install huggingface-hub==0.23.4 transformers==4.37.2 accelerate==0.27.1 peft==0.8.2 datasets==2.14.6
           pip install sentencepiece==0.1.99
+          pip install numpy==1.26.4 --no-cache-dir
           pip install deepspeed==0.13.5 --no-cache-dir 
           # 验证 CUDA 和依赖
           python -c "import torch; print('CUDA 可用：', torch.cuda.is_available()); print('CUDA 版本：', torch.version.cuda)"
