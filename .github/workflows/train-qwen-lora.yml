@@ -44,8 +44,6 @@ jobs:
           pip install numpy==1.26.4 pyarrow==14.0.1 --no-cache-dir
           pip install deepspeed==0.13.5 --no-cache-dir 
 
-          git clone https://github.com/Dao-AILab/flash-attention
-          pip install flash-attn --no-build-isolation
 
           # 验证 CUDA 和依赖
           python -c "import torch; print('CUDA 可用：', torch.cuda.is_available()); print('CUDA 版本：', torch.version.cuda)"
