@@ -1,4 +1,4 @@
-name: 微调 Qwen3-0.6B 高中学习助手（FastChat + LoRA）
+name: 微调 Qwen3-0.6B 高中学习助手（修复 deepspeed 依赖）
 on:
   push:
     branches: [ main ]
@@ -11,87 +11,120 @@ jobs:
       contents: write
       packages: write
     steps:
-      # 步骤 1：拉取仓库代码
+      # 步骤 1：拉取代码（浅克隆）
       - name: 拉取代码
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
-      # 步骤 2：配置 Python 3.10（纯 Python 环境）
+      # 步骤 2：配置 Python 3.10
       - name: 配置 Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           cache: 'pip'
 
-      # 步骤 3：安装系统基础依赖
+      # 步骤 3：清理系统空间
+      - name: 清理系统垃圾
+        run: |
+          df -h
+          sudo apt-get clean && sudo apt-get autoremove -y
+          sudo rm -rf /usr/share/doc/* /usr/share/man/* /var/lib/docker/
+          rm -rf ~/.cache/pip
+          df -h
+
+      # 步骤 4：安装系统依赖（添加 deepspeed 所需的系统库）
       - name: 安装系统依赖
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc g++ make libcupti-dev
+          # 安装 deepspeed 编译所需的系统库
+          sudo apt-get install -y gcc g++ make libcupti-dev git --no-install-recommends
 
-      # 步骤 4：安装 PyTorch（带 CUDA 11.8）
-      - name: 安装 PyTorch + CUDA 11.8
+      # 步骤 5：安装核心依赖（添加 deepspeed）
+      - name: 安装 PyTorch + FastChat + deepspeed
         run: |
           pip install --upgrade pip
+          # 安装 PyTorch（CUDA 11.8）
           pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu118
+          # 安装 FastChat（本地开发模式）
+          pip install -e . --no-cache-dir
+          # 安装核心训练依赖 + deepspeed（指定兼容版本）
+          pip install huggingface-hub==0.20.3 transformers==4.37.2 accelerate==0.27.1 peft==0.8.2 datasets==2.14.6 sentencepiece==0.1.99 --no-cache-dir
+          pip install deepspeed==0.13.5 --no-cache-dir  # 兼容 PyTorch 2.1.0 和 FastChat
+          
+          # 验证依赖安装成功
+          python -c "import torch; print('CUDA 可用：', torch.cuda.is_available())"
+          python -c "import deepspeed; print('deepspeed 版本：', deepspeed.__version__)"
+          python -c "from deepspeed import zero; print('deepspeed.zero 导入成功')"
 
-      # 步骤 5：安装依赖（升级 huggingface-hub 确保兼容性）
-      - name: 安装 FastChat 及训练工具
-        run: |
-          pip install -e .
-          # 升级 huggingface-hub 到支持断点续传的版本
-          pip install huggingface-hub==0.23.4 transformers==4.37.2 accelerate==0.27.1 peft==0.8.2 datasets==2.14.6
-          pip install sentencepiece==0.1.99
-          # 验证 CUDA 和依赖
-          python -c "import torch; print('CUDA 可用：', torch.cuda.is_available()); print('CUDA 版本：', torch.version.cuda)"
-          python -c "import huggingface_hub; print('huggingface-hub 版本：', huggingface_hub.__version__)"
-
-      # 步骤 6：登录 Hugging Face Hub
-      - name: 登录 Hugging Face Hub
+      # 步骤 6：登录 Hugging Face
+      - name: 登录 Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           huggingface-cli login --token $HF_TOKEN
 
-      # 步骤 7：下载 Qwen3-0.6B 模型（移除 --max-workers，添加断点续传）
+      # 步骤 7：下载 Qwen3-0.6B 模型（Python API 版，避免命令行格式问题）
       - name: 下载 Qwen3-0.6B 模型
         run: |
-          huggingface-cli download Qwen/Qwen3-0.6B --local-dir ./models/Qwen3-0.6B --local-dir-use-symlinks False --resume-download --include "*.bin" "*.json" "*.model" "*.py"
-          
-          # 验证下载结果
-          echo "模型目录内容："
-          ls -l ./models/Qwen3-0.6B
+          python - <<EOF
+          from transformers import AutoModelForCausalLM, AutoTokenizer
+          import os
+
+          os.makedirs('./models/Qwen3-0.6B', exist_ok=True)
+
+          # 下载模型（trust_remote_code 必须启用，Qwen 模型依赖自定义代码）
+          model = AutoModelForCausalLM.from_pretrained(
+              "Qwen/Qwen3-0.6B",
+              cache_dir="./models/Qwen3-0.6B",
+              trust_remote_code=True,
+              device_map="cpu"  # 先下载到 CPU，训练时再加载到 GPU
+          )
+          tokenizer = AutoTokenizer.from_pretrained(
+              "Qwen/Qwen3-0.6B",
+              cache_dir="./models/Qwen3-0.6B",
+              trust_remote_code=True
+          )
+
+          print("模型下载完成！模型路径：", model.config._name_or_path)
+          EOF
+
           du -sh ./models/Qwen3-0.6B
           df -h
 
-      # 步骤 8：执行 LoRA 微调（核心步骤）
-      - name: 启动 Qwen3-0.6B LoRA 微调
+      # 步骤 8：LoRA 微调（核心步骤，已修复依赖）
+      - name: 启动 LoRA 微调
         run: |
           python -m fastchat.train.train_lora \
             --model_name_or_path ./models/Qwen3-0.6B \
             --data_path ./data/highschool_qa.json \
-            --output_dir ./output/Qwen3-0.6B-highschool-lora \
-            --per_device_train_batch_size=2 \
-            --gradient_accumulation_steps=8 \
+            --output_dir ./output/qwen3-0.6b-highschool-lora \
+            --per_device_train_batch_size=4 \
+            --gradient_accumulation_steps=4 \
             --learning_rate=2e-4 \
             --num_train_epochs=3 \
             --logging_steps=10 \
-            --save_steps=100 \
+            --save_steps=50 \
             --fp16=True \
             --lora_r=8 \
             --lora_alpha=16 \
             --lora_dropout=0.05 \
             --target_modules="q_proj,v_proj,k_proj,o_proj,gate_proj,up_proj,down_proj" \
-            --peft_model_id ${{ secrets.HF_USERNAME }}/Qwen3-0.6B-highschool-qa \
+            --peft_model_id ${{ secrets.HF_USERNAME }}/qwen3-0.6b-highschool-qa \
             --push_to_hub=True \
             --no-flash-attn \
-            --load-8bit
+            --save_total_limit=2 \
+            --load-8bit  # 8 位量化，进一步降低显存占用
 
-      # 步骤 9：推送模型到 Hugging Face
-      - name: 推送模型到 Hugging Face Hub
+      # 步骤 9：推送 LoRA 模型到 Hugging Face
+      - name: 推送模型
         if: success()
         run: |
-          python -m fastchat.model.push_to_hub \
-            --model-path ./models/Qwen3-0.6B \
-            --lora-path ./output/Qwen3-0.6B-highschool-lora \
-            --repo-id ${{ secrets.HF_USERNAME }}/Qwen3-0.6B-highschool-qa \
-            --commit-message "FastChat 微调 Qwen3-0.6B 高中助手（最终版）"
+          python -m peft.push_to_hub \
+            --model_path ./output/qwen3-0.6b-highschool-lora \
+            --repo_id ${{ secrets.HF_USERNAME }}/qwen3-0.6b-highschool-qa \
+            --commit-message "Qwen3-0.6B 高中助手（修复 deepspeed 依赖）"
+          
+          # 清理空间
+          rm -rf ./models/Qwen3-0.6B
+          df -h
