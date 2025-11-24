@@ -15,25 +15,21 @@ jobs:
       - name: 拉取代码
         uses: actions/checkout@v4
 
-      # 步骤 2：配置 Conda + CUDA 11.8（修复参数冲突和 Python 版本）
+      # 步骤 2：配置 Conda + Python 3.10（无需 environment.yml）
       - name: 配置 Conda + CUDA 11.8
         uses: conda-incubator/setup-miniconda@v3
         with:
-          auto-update-conda: true  # 保留：自动更新 Conda 到最新版
-          python-version: 3.10  # 修正：之前误写为 3.1，需与训练依赖一致
-          environment-file: environment.yml  # 配套的环境配置文件
-          activate-environment: fastchat-env  # 环境名称
+          auto-update-conda: true
+          python-version: 3.10  # 直接指定 Python 版本
+          activate-environment: fastchat-env  # 自定义环境名称
           auto-activate-base: true
-          remove-profiles: true
           conda-solver: libmamba
-          clean-patched-environment-file: true
-          run-post: true
 
-      # 步骤 3：激活 Conda 并安装依赖
+      # 步骤 3：激活 Conda 并安装依赖（所有依赖直接安装）
       - name: 安装 PyTorch、FastChat 及训练依赖
         shell: bash -l {0}  # 确保激活 Conda 环境
         run: |
-          # 安装适配 CUDA 11.8 的 PyTorch（Conda 自动处理 CUDA 依赖）
+          # 安装 CUDA 11.8 + PyTorch（Conda 自动处理兼容性）
           conda install pytorch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 pytorch-cuda=11.8 -c pytorch -c nvidia -y
           
           # 安装 FastChat
@@ -60,7 +56,7 @@ jobs:
             --local-dir ./models/Qwen-7B \
             --local-dir-use-symlinks False
 
-      # 步骤 6：执行 LoRA 微调（禁用 flash-attn，无依赖冲突）
+      # 步骤 6：执行 LoRA 微调（禁用 flash-attn）
       - name: 启动 Qwen 模型 LoRA 微调
         shell: bash -l {0}
         run: |
