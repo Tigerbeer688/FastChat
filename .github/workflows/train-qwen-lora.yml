@@ -41,11 +41,19 @@ jobs:
           # 升级 huggingface-hub 到支持断点续传的版本
           pip install huggingface-hub==0.23.4 transformers==4.37.2 accelerate==0.27.1 peft==0.8.2 datasets==2.14.6
           pip install sentencepiece==0.1.99
-          pip install numpy==1.26.4 --no-cache-dir
+          pip install numpy==1.26.4 pyarrow==14.0.1 --no-cache-dir
           pip install deepspeed==0.13.5 --no-cache-dir 
           # 验证 CUDA 和依赖
           python -c "import torch; print('CUDA 可用：', torch.cuda.is_available()); print('CUDA 版本：', torch.version.cuda)"
           python -c "import huggingface_hub; print('huggingface-hub 版本：', huggingface_hub.__version__)"
+
+          # 验证所有关键依赖和模块
+          python -c "import numpy; print('NumPy：', numpy.__version__)"  # 1.26.4
+          python -c "import pyarrow; print('PyArrow：', pyarrow.__version__)"  # 14.0.1
+          python -c "from pyarrow import PyExtensionType; print('PyArrow PyExtensionType 导入成功')"
+          python -c "import datasets; print('Datasets：', datasets.__version__)"  # 2.14.6
+          python -c "from transformers import Trainer; print('Transformers Trainer 导入成功')"
+          python -c "from deepspeed import zero; print('Deepspeed zero 导入成功')"
 
       # 步骤 6：登录 Hugging Face Hub
       - name: 登录 Hugging Face Hub
