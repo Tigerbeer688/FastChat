@@ -30,8 +30,8 @@ jobs:
       - name: 安装 flash-attn（用预编译包，跳过本地编译）
         run: |
           # 使用 huggingface 源的预编译 wheel，避免编译依赖问题
-          pip install flash-attn==2.8.3 --no-build-isolation --index-url https://download.pytorch.org/whl/cu118
-
+          # pip install flash-attn==2.8.3 --no-build-isolation --index-url https://download.pytorch.org/whl/cu118
+          pip install flash-attn==2.8.3 --no-build-isolation --find-links https://download.pytorch.org/whl/cu118 --trusted-host download.pytorch.org
       - name: 安装 FastChat 及其他训练依赖
         run: |
           # 安装 FastChat（无需再单独装 flash-attn，已提前安装）
